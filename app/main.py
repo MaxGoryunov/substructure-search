@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from os import getenv
+
 from fastapi import FastAPI, HTTPException, Query, status
 from rdkit import Chem
 from starlette.responses import Response
@@ -47,6 +49,11 @@ def _not_found(identifier: str) -> HTTPException:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/server")
+def server() -> dict[str, str]:
+    return {"server_id": getenv("SERVER_ID", "local")}
 
 
 @app.post(

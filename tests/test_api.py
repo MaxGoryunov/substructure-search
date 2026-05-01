@@ -25,6 +25,13 @@ def test_health_check(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_server_endpoint_returns_default_server_id(client: TestClient) -> None:
+    response = client.get("/server")
+
+    assert response.status_code == 200
+    assert response.json() == {"server_id": "local"}
+
+
 def test_creates_and_reads_molecule(client: TestClient) -> None:
     create_response = client.post(
         "/molecules",
