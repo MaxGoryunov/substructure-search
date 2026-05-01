@@ -1,0 +1,1 @@
+"""Substructure search application package."""
