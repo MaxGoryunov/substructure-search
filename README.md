@@ -35,5 +35,13 @@ Run the API with Docker Compose:
 docker compose up --build
 ```
 
-The API will be available at `http://127.0.0.1:8000`, with interactive docs at
-`http://127.0.0.1:8000/docs`.
+The API will be available through nginx at `http://127.0.0.1`, with interactive
+docs at `http://127.0.0.1/docs`.
+
+Verify load balancing:
+
+```bash
+curl http://127.0.0.1/server
+```
+
+Repeated requests should alternate between `web-1` and `web-2`.

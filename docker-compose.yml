@@ -1,10 +1,8 @@
 services:
-  api:
+  web1:
     build: .
-    ports:
-      - "8000:8000"
     environment:
-      SERVER_ID: api-1
+      SERVER_ID: web-1
     healthcheck:
       test:
         - CMD
@@ -14,3 +12,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  web2:
+    build: .
+    environment:
+      SERVER_ID: web-2
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health').read()"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - web1
+      - web2
