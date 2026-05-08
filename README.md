@@ -2,9 +2,12 @@
 
 Substructure search service for chemical compounds.
 
-The first milestone provides an RDKit-powered core function that accepts a
-collection of molecule SMILES strings and returns the molecules containing a
-requested substructure.
+The current implementation provides:
+
+- an RDKit-powered core function that searches molecule SMILES strings for a
+  requested substructure;
+- a FastAPI application with in-memory molecule CRUD endpoints;
+- a synchronous search endpoint over stored molecules.
 
 ## Development
 
@@ -18,4 +21,10 @@ Run tests:
 
 ```bash
 pytest
+```
+
+Run the API locally:
+
+```bash
+uvicorn app.main:app --reload
 ```
