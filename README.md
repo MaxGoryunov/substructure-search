@@ -28,3 +28,12 @@ Run the API locally:
 ```bash
 uvicorn app.main:app --reload
 ```
+
+Run the API with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+The API will be available at `http://127.0.0.1:8000`, with interactive docs at
+`http://127.0.0.1:8000/docs`.
