@@ -23,6 +23,12 @@ Run tests:
 pytest
 ```
 
+Run lint checks:
+
+```bash
+flake8 app tests
+```
+
 Run the API locally:
 
 ```bash
