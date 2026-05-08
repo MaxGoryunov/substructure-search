@@ -8,11 +8,14 @@ from fastapi import FastAPI, HTTPException, Query, status
 from rdkit import Chem
 from starlette.responses import Response
 
+from app.config import get_database_url
 from app.core import InvalidSmilesError, substructure_search
+from app.db import build_session_factory
 from app.repositories import (
     DuplicateMoleculeError,
     InMemoryMoleculeRepository,
     MoleculeNotFoundError,
+    SQLAlchemyMoleculeRepository,
     StoredMolecule,
 )
 from app.schemas import (
@@ -23,7 +26,15 @@ from app.schemas import (
     SearchResponse,
 )
 
-repository = InMemoryMoleculeRepository()
+
+def _build_repository() -> InMemoryMoleculeRepository | SQLAlchemyMoleculeRepository:
+    database_url = get_database_url()
+    if database_url is None:
+        return InMemoryMoleculeRepository()
+    return SQLAlchemyMoleculeRepository(build_session_factory(database_url))
+
+
+repository = _build_repository()
 app = FastAPI(title="Substructure Search")
 
 

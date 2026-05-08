@@ -38,6 +38,7 @@ uvicorn app.main:app --reload
 Run the API with Docker Compose:
 
 ```bash
+cp .env.example .env
 docker compose up --build
 ```
 
@@ -51,3 +52,7 @@ curl http://127.0.0.1/server
 ```
 
 Repeated requests should alternate between `web-1` and `web-2`.
+
+Molecules are stored in PostgreSQL when `DATABASE_URL` is set. The Docker
+Compose setup reads database credentials from `.env` and persists data in the
+`postgres-data` volume.
