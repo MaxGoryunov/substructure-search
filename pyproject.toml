@@ -12,6 +12,7 @@ dependencies = [
     "fastapi>=0.110",
     "psycopg[binary]>=3.2",
     "rdkit>=2023.9.1",
+    "redis>=5.0",
     "sqlalchemy>=2.0",
     "uvicorn[standard]>=0.27",
 ]
