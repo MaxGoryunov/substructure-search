@@ -133,3 +133,65 @@ def test_rejects_invalid_search_substructure(client: TestClient) -> None:
     response = client.post("/search", json={"substructure": "not-smiles"})
 
     assert response.status_code == 422
+
+
+def test_creates_search_task(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeTask:
+        id = "task-1"
+        status = "PENDING"
+
+    class FakeSearchTask:
+        def delay(self, substructure: str) -> FakeTask:
+            assert substructure == "c1ccccc1"
+            return FakeTask()
+
+    monkeypatch.setattr("app.main.run_substructure_search", FakeSearchTask())
+
+    response = client.post("/search/tasks", json={"substructure": "c1ccccc1"})
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "task_id": "task-1",
+        "status": "PENDING",
+        "result": None,
+        "error": None,
+    }
+
+
+def test_reads_completed_search_task(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeAsyncResult:
+        status = "SUCCESS"
+        result = {
+            "substructure": "c1ccccc1",
+            "matches": [{"identifier": "benzene", "smiles": "c1ccccc1"}],
+        }
+
+        def __init__(self, task_id: str, app) -> None:
+            assert task_id == "task-1"
+
+        def successful(self) -> bool:
+            return True
+
+        def failed(self) -> bool:
+            return False
+
+    monkeypatch.setattr("app.main.AsyncResult", FakeAsyncResult)
+
+    response = client.get("/search/tasks/task-1")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "task_id": "task-1",
+        "status": "SUCCESS",
+        "result": {
+            "substructure": "c1ccccc1",
+            "matches": [{"identifier": "benzene", "smiles": "c1ccccc1"}],
+        },
+        "error": None,
+    }

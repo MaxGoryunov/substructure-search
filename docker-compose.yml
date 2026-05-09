@@ -8,6 +8,8 @@ services:
       SERVER_ID: web-1
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://substructure:substructure@db:5432/substructure_search}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
       SEARCH_CACHE_TTL_SECONDS: ${SEARCH_CACHE_TTL_SECONDS:-300}
     healthcheck:
       test:
@@ -33,6 +35,8 @@ services:
       SERVER_ID: web-2
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://substructure:substructure@db:5432/substructure_search}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
       SEARCH_CACHE_TTL_SECONDS: ${SEARCH_CACHE_TTL_SECONDS:-300}
     healthcheck:
       test:
@@ -88,6 +92,24 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  worker:
+    build: .
+    command: celery -A app.tasks worker --loglevel=info
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://substructure:substructure@db:5432/substructure_search}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      SEARCH_CACHE_TTL_SECONDS: ${SEARCH_CACHE_TTL_SECONDS:-300}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres-data:

@@ -7,18 +7,16 @@ from os import getenv
 
 from fastapi import FastAPI, HTTPException, Query, status
 from rdkit import Chem
+from celery.result import AsyncResult
 from starlette.responses import Response
 
-from app.cache import build_search_cache, build_search_cache_key
-from app.config import get_database_url
-from app.core import InvalidSmilesError, substructure_search
-from app.db import build_session_factory
+from app.cache import build_search_cache
+from app.celery_app import celery_app
 from app.logging_config import configure_logging
+from app.repository_factory import build_molecule_repository
 from app.repositories import (
     DuplicateMoleculeError,
-    InMemoryMoleculeRepository,
     MoleculeNotFoundError,
-    SQLAlchemyMoleculeRepository,
     StoredMolecule,
 )
 from app.schemas import (
@@ -27,39 +25,21 @@ from app.schemas import (
     MoleculeUpdate,
     SearchRequest,
     SearchResponse,
+    SearchTaskStatus,
 )
+from app.search_service import InvalidSmilesError, search_stored_molecules
+from app.tasks import run_substructure_search
 
 configure_logging()
 logger = logging.getLogger(__name__)
 
-
-def _build_repository() -> InMemoryMoleculeRepository | SQLAlchemyMoleculeRepository:
-    database_url = get_database_url()
-    if database_url is None:
-        logger.info("using in-memory molecule repository")
-        return InMemoryMoleculeRepository()
-    logger.info("using SQLAlchemy molecule repository")
-    return SQLAlchemyMoleculeRepository(build_session_factory(database_url))
-
-
-repository = _build_repository()
+repository = build_molecule_repository()
 search_cache = build_search_cache()
 app = FastAPI(title="Substructure Search")
 
 
 def _to_schema(molecule: StoredMolecule) -> MoleculeRead:
     return MoleculeRead(identifier=molecule.identifier, smiles=molecule.smiles)
-
-
-def _to_cache_payload(matches: list[MoleculeRead]) -> list[dict[str, str]]:
-    return [
-        {"identifier": molecule.identifier, "smiles": molecule.smiles}
-        for molecule in matches
-    ]
-
-
-def _from_cache_payload(matches: list[dict[str, str]]) -> list[MoleculeRead]:
-    return [MoleculeRead(**molecule) for molecule in matches]
 
 
 def _ensure_valid_molecule_smiles(smiles: str) -> None:
@@ -130,7 +110,10 @@ def update_molecule(identifier: str, payload: MoleculeUpdate) -> MoleculeRead:
         logger.info("updated molecule", extra={"identifier": identifier})
         return _to_schema(updated)
     except MoleculeNotFoundError as exc:
-        logger.warning("molecule not found for update", extra={"identifier": identifier})
+        logger.warning(
+            "molecule not found for update",
+            extra={"identifier": identifier},
+        )
         raise _not_found(identifier) from exc
 
 
@@ -139,7 +122,10 @@ def delete_molecule(identifier: str) -> Response:
     try:
         repository.delete(identifier)
     except MoleculeNotFoundError as exc:
-        logger.warning("molecule not found for delete", extra={"identifier": identifier})
+        logger.warning(
+            "molecule not found for delete",
+            extra={"identifier": identifier},
+        )
         raise _not_found(identifier) from exc
     logger.info("deleted molecule", extra={"identifier": identifier})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -157,22 +143,11 @@ def list_molecules(limit: int | None = Query(default=None, ge=0)) -> list[Molecu
 
 @app.post("/search", response_model=SearchResponse)
 def search(payload: SearchRequest) -> SearchResponse:
-    molecules = list(repository.list())
-    cache_key = build_search_cache_key(payload.substructure, molecules)
-    if search_cache is not None:
-        cached_matches = search_cache.get(cache_key)
-        if cached_matches is not None:
-            logger.info("search cache hit")
-            return SearchResponse(
-                substructure=payload.substructure,
-                matches=_from_cache_payload(cached_matches),
-            )
-        logger.info("search cache miss")
-
     try:
-        matched_smiles = substructure_search(
-            (molecule.smiles for molecule in molecules),
+        return search_stored_molecules(
+            repository,
             payload.substructure,
+            search_cache=search_cache,
         )
     except InvalidSmilesError as exc:
         logger.warning("validation error for substructure SMILES")
@@ -181,17 +156,32 @@ def search(payload: SearchRequest) -> SearchResponse:
             detail=str(exc),
         ) from exc
 
-    remaining = list(matched_smiles)
-    matches: list[MoleculeRead] = []
-    for molecule in molecules:
-        if molecule.smiles in remaining:
-            matches.append(_to_schema(molecule))
-            remaining.remove(molecule.smiles)
 
-    logger.info(
-        "completed substructure search",
-        extra={"molecule_count": len(molecules), "match_count": len(matches)},
-    )
-    if search_cache is not None:
-        search_cache.set(cache_key, _to_cache_payload(matches))
-    return SearchResponse(substructure=payload.substructure, matches=matches)
+@app.post(
+    "/search/tasks",
+    response_model=SearchTaskStatus,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def create_search_task(payload: SearchRequest) -> SearchTaskStatus:
+    task = run_substructure_search.delay(payload.substructure)
+    logger.info("queued search task", extra={"task_id": task.id})
+    return SearchTaskStatus(task_id=task.id, status=task.status)
+
+
+@app.get("/search/tasks/{task_id}", response_model=SearchTaskStatus)
+def get_search_task(task_id: str) -> SearchTaskStatus:
+    task = AsyncResult(task_id, app=celery_app)
+    logger.info("read search task status", extra={"task_id": task_id})
+    if task.successful():
+        return SearchTaskStatus(
+            task_id=task_id,
+            status=task.status,
+            result=SearchResponse(**task.result),
+        )
+    if task.failed():
+        return SearchTaskStatus(
+            task_id=task_id,
+            status=task.status,
+            error=str(task.result),
+        )
+    return SearchTaskStatus(task_id=task_id, status=task.status)
