@@ -56,3 +56,8 @@ Repeated requests should alternate between `web-1` and `web-2`.
 Molecules are stored in PostgreSQL when `DATABASE_URL` is set. The Docker
 Compose setup reads database credentials from `.env` and persists data in the
 `postgres-data` volume.
+
+Search results are cached in Redis when `REDIS_URL` is set. Cache entries use
+`SEARCH_CACHE_TTL_SECONDS` and include both the substructure query and the
+current molecule dataset fingerprint, so CRUD changes naturally use a new cache
+key.

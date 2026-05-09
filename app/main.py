@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Query, status
 from rdkit import Chem
 from starlette.responses import Response
 
+from app.cache import build_search_cache, build_search_cache_key
 from app.config import get_database_url
 from app.core import InvalidSmilesError, substructure_search
 from app.db import build_session_factory
@@ -42,11 +43,23 @@ def _build_repository() -> InMemoryMoleculeRepository | SQLAlchemyMoleculeReposi
 
 
 repository = _build_repository()
+search_cache = build_search_cache()
 app = FastAPI(title="Substructure Search")
 
 
 def _to_schema(molecule: StoredMolecule) -> MoleculeRead:
     return MoleculeRead(identifier=molecule.identifier, smiles=molecule.smiles)
+
+
+def _to_cache_payload(matches: list[MoleculeRead]) -> list[dict[str, str]]:
+    return [
+        {"identifier": molecule.identifier, "smiles": molecule.smiles}
+        for molecule in matches
+    ]
+
+
+def _from_cache_payload(matches: list[dict[str, str]]) -> list[MoleculeRead]:
+    return [MoleculeRead(**molecule) for molecule in matches]
 
 
 def _ensure_valid_molecule_smiles(smiles: str) -> None:
@@ -145,6 +158,17 @@ def list_molecules(limit: int | None = Query(default=None, ge=0)) -> list[Molecu
 @app.post("/search", response_model=SearchResponse)
 def search(payload: SearchRequest) -> SearchResponse:
     molecules = list(repository.list())
+    cache_key = build_search_cache_key(payload.substructure, molecules)
+    if search_cache is not None:
+        cached_matches = search_cache.get(cache_key)
+        if cached_matches is not None:
+            logger.info("search cache hit")
+            return SearchResponse(
+                substructure=payload.substructure,
+                matches=_from_cache_payload(cached_matches),
+            )
+        logger.info("search cache miss")
+
     try:
         matched_smiles = substructure_search(
             (molecule.smiles for molecule in molecules),
@@ -168,4 +192,6 @@ def search(payload: SearchRequest) -> SearchResponse:
         "completed substructure search",
         extra={"molecule_count": len(molecules), "match_count": len(matches)},
     )
+    if search_cache is not None:
+        search_cache.set(cache_key, _to_cache_payload(matches))
     return SearchResponse(substructure=payload.substructure, matches=matches)
