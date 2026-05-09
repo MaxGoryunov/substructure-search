@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from os import getenv
 
 from fastapi import FastAPI, HTTPException, Query, status
@@ -11,6 +12,7 @@ from starlette.responses import Response
 from app.config import get_database_url
 from app.core import InvalidSmilesError, substructure_search
 from app.db import build_session_factory
+from app.logging_config import configure_logging
 from app.repositories import (
     DuplicateMoleculeError,
     InMemoryMoleculeRepository,
@@ -26,11 +28,16 @@ from app.schemas import (
     SearchResponse,
 )
 
+configure_logging()
+logger = logging.getLogger(__name__)
+
 
 def _build_repository() -> InMemoryMoleculeRepository | SQLAlchemyMoleculeRepository:
     database_url = get_database_url()
     if database_url is None:
+        logger.info("using in-memory molecule repository")
         return InMemoryMoleculeRepository()
+    logger.info("using SQLAlchemy molecule repository")
     return SQLAlchemyMoleculeRepository(build_session_factory(database_url))
 
 
@@ -44,6 +51,7 @@ def _to_schema(molecule: StoredMolecule) -> MoleculeRead:
 
 def _ensure_valid_molecule_smiles(smiles: str) -> None:
     if Chem.MolFromSmiles(smiles) is None:
+        logger.warning("validation error for molecule SMILES")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid molecule SMILES: {smiles!r}",
@@ -76,8 +84,14 @@ def create_molecule(payload: MoleculeCreate) -> MoleculeRead:
     _ensure_valid_molecule_smiles(payload.smiles)
     molecule = StoredMolecule(identifier=payload.identifier, smiles=payload.smiles)
     try:
-        return _to_schema(repository.add(molecule))
+        created = repository.add(molecule)
+        logger.info("created molecule", extra={"identifier": payload.identifier})
+        return _to_schema(created)
     except DuplicateMoleculeError as exc:
+        logger.warning(
+            "duplicate molecule identifier",
+            extra={"identifier": payload.identifier},
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Molecule {payload.identifier!r} already exists",
@@ -87,8 +101,11 @@ def create_molecule(payload: MoleculeCreate) -> MoleculeRead:
 @app.get("/molecules/{identifier}", response_model=MoleculeRead)
 def get_molecule(identifier: str) -> MoleculeRead:
     try:
-        return _to_schema(repository.get(identifier))
+        molecule = repository.get(identifier)
+        logger.info("read molecule", extra={"identifier": identifier})
+        return _to_schema(molecule)
     except MoleculeNotFoundError as exc:
+        logger.warning("molecule not found", extra={"identifier": identifier})
         raise _not_found(identifier) from exc
 
 
@@ -96,8 +113,11 @@ def get_molecule(identifier: str) -> MoleculeRead:
 def update_molecule(identifier: str, payload: MoleculeUpdate) -> MoleculeRead:
     _ensure_valid_molecule_smiles(payload.smiles)
     try:
-        return _to_schema(repository.update(identifier, smiles=payload.smiles))
+        updated = repository.update(identifier, smiles=payload.smiles)
+        logger.info("updated molecule", extra={"identifier": identifier})
+        return _to_schema(updated)
     except MoleculeNotFoundError as exc:
+        logger.warning("molecule not found for update", extra={"identifier": identifier})
         raise _not_found(identifier) from exc
 
 
@@ -106,13 +126,20 @@ def delete_molecule(identifier: str) -> Response:
     try:
         repository.delete(identifier)
     except MoleculeNotFoundError as exc:
+        logger.warning("molecule not found for delete", extra={"identifier": identifier})
         raise _not_found(identifier) from exc
+    logger.info("deleted molecule", extra={"identifier": identifier})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get("/molecules", response_model=list[MoleculeRead])
 def list_molecules(limit: int | None = Query(default=None, ge=0)) -> list[MoleculeRead]:
-    return [_to_schema(molecule) for molecule in repository.list(limit=limit)]
+    molecules = [_to_schema(molecule) for molecule in repository.list(limit=limit)]
+    logger.info(
+        "listed molecules",
+        extra={"limit": limit, "result_count": len(molecules)},
+    )
+    return molecules
 
 
 @app.post("/search", response_model=SearchResponse)
@@ -124,6 +151,7 @@ def search(payload: SearchRequest) -> SearchResponse:
             payload.substructure,
         )
     except InvalidSmilesError as exc:
+        logger.warning("validation error for substructure SMILES")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
@@ -136,4 +164,8 @@ def search(payload: SearchRequest) -> SearchResponse:
             matches.append(_to_schema(molecule))
             remaining.remove(molecule.smiles)
 
+    logger.info(
+        "completed substructure search",
+        extra={"molecule_count": len(molecules), "match_count": len(matches)},
+    )
     return SearchResponse(substructure=payload.substructure, matches=matches)

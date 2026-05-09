@@ -94,6 +94,21 @@ def test_lists_molecules_with_limit(client: TestClient) -> None:
     assert response.json() == [{"identifier": "one", "smiles": "CCO"}]
 
 
+def test_lists_no_molecules_when_limit_is_zero(client: TestClient) -> None:
+    client.post("/molecules", json={"identifier": "one", "smiles": "CCO"})
+
+    response = client.get("/molecules", params={"limit": 0})
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_rejects_negative_list_limit(client: TestClient) -> None:
+    response = client.get("/molecules", params={"limit": -1})
+
+    assert response.status_code == 422
+
+
 def test_searches_stored_molecules(client: TestClient) -> None:
     client.post("/molecules", json={"identifier": "ethanol", "smiles": "CCO"})
     client.post("/molecules", json={"identifier": "benzene", "smiles": "c1ccccc1"})
