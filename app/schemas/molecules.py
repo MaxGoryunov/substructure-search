@@ -24,3 +24,10 @@ class SearchRequest(BaseModel):
 class SearchResponse(BaseModel):
     substructure: str
     matches: list[MoleculeRead]
+
+
+class SearchTaskStatus(BaseModel):
+    task_id: str
+    status: str
+    result: SearchResponse | None = None
+    error: str | None = None

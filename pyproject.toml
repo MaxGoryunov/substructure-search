@@ -9,6 +9,7 @@ description = "Substructure search service for chemical compounds."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "celery>=5.4",
     "fastapi>=0.110",
     "psycopg[binary]>=3.2",
     "rdkit>=2023.9.1",

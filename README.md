@@ -61,3 +61,11 @@ Search results are cached in Redis when `REDIS_URL` is set. Cache entries use
 `SEARCH_CACHE_TTL_SECONDS` and include both the substructure query and the
 current molecule dataset fingerprint, so CRUD changes naturally use a new cache
 key.
+
+Asynchronous search is available through Celery:
+
+- `POST /search/tasks` queues a search task;
+- `GET /search/tasks/{task_id}` returns task status and the result when ready.
+
+Docker Compose runs the Celery worker as a separate `worker` service and uses
+Redis as the broker and result backend.

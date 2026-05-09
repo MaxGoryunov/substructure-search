@@ -6,6 +6,7 @@ from app.schemas.molecules import (
     MoleculeUpdate,
     SearchRequest,
     SearchResponse,
+    SearchTaskStatus,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "MoleculeUpdate",
     "SearchRequest",
     "SearchResponse",
+    "SearchTaskStatus",
 ]
